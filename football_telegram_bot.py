@@ -275,7 +275,7 @@ def get_team(bot, update, args):
         connection.request("GET", "/v1/teams/{}/fixtures?timeFrame=p{}".format(team_id, -days), None, headers)
         response = json.loads(connection.getresponse().read().decode())
         for fixture in response["fixtures"]:
-            fixtures.append("*{}* {} - _Matchday {}_\n`{:>15s} {}-{} {}`\n".format(competitions_ids[fixture["competitionId"]], parse_date_no_day(fixture["date"], time_zone, fixture["status"]), fixture["matchday"], leagues_teams_ids[fixture["competitionId"]][fixture["homeTeamId"]], fixture["result"]["goalsHomeTeam"], fixture["result"]["goalsAwayTeam"], leagues_teams_ids[fixture["competitionId"]][fixture["awayTeamId"]]))
+            fixtures.append("*{}* {} - _Matchday {}_\n`{:>15s} {}-{} {}`\n".format(competitions_ids[fixture["competitionId"]], parse_date_no_day(fixture["date"], time_zone), fixture["matchday"], leagues_teams_ids[fixture["competitionId"]][fixture["homeTeamId"]], fixture["result"]["goalsHomeTeam"], fixture["result"]["goalsAwayTeam"], leagues_teams_ids[fixture["competitionId"]][fixture["awayTeamId"]]))
     bot.send_message(chat_id=update.message.chat_id,
                      text="{}".format("\n".join(fixtures)), parse_mode="markdown")
     return
