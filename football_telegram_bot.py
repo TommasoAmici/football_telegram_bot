@@ -45,7 +45,7 @@ FL2_ids = {742: "US Orleans", 520: "Nancy", 1045: "Paris", 541: "Clermont Foot A
 BL1_ids = { 5: "Bayern München", 3: "Bayer Leverkusen", 7: "Hamburger SV",16: "Augsburg",9: "Hertha BSC",10: "VfB Stuttgart",2: "TSG 1899 Hoffenheim",12: "Werder Bremen",15: "1. FSV Mainz 05",8: "Hannover 96",11: "VfL Wolfsburg",4: "Borussia Dortmund",6: "Schalke 04",721: "Red Bull Leipzig",17: "SC Freiburg",19: "Eintracht Frankfurt",18: "Bor. Mönchengladbach",1: "1. Köln"}
 BL2_ids = {36: "VfL Bochum",20: "St. Pauli",31: "Ingolstadt 04",28: "1. Union Berlin",38: "Arminia Bielefeld",43: "Jahn Regensburg",55: "SV Darmstadt 98",21: "SpVgg Greuther Fürth",14: "1. Nürnberg",13: "1. Kaiserslautern",35: "Dynamo Dresden",25: "MSV Duisburg",720: "Holstein Kiel",46: "SV Sandhausen",44: "1. Heidenheim 1846",22: "Erzgebirge Aue",24: "Fortuna Düsseldorf",33: "Eintracht Braunschweig"}
 PD_ids = {745: "CD Leganes",263: "Deportivo Alavés",95: "Valencia CF",275: "UD Las Palmas",558: "RC Celta de Vigo",92: "Real Sociedad",298: "Girona",78: "Atlético de Madrid",559: "Sevilla",80: "RCD Espanyol",77: "Athletic Club",82: "Getafe CF",81: "FC Barcelona",90: "Real Betis",560: "Deportivo La Coruña",86: "Real Madrid CF",88: "Levante UD",94: "Villarreal CF",84: "Málaga CF",278: "SD Eibar"}
-SA_ids = {109: "Juventus",104: "Cagliari",450: "Hellas Verona",113: "Napoli",102: "Atalanta",100: "Roma",115: "Udinese",106: "Chievo Verona",471: "Sassuolo",107: "Genoa",584: "Sampdoria",1106: "Benevento",110: "Lazio",1107: "SPAL Ferrara",108: "Inter",99: "Fiorentina",103: "Bologna",586: "Torino",472: "Crotone",98: "Milan"}
+SA_ids = {109: "Juventus",104: "Cagliari",450: "Hellas Verona",113: "Napoli",102: "Atalanta",100: "Roma",115: "Udinese",106: "Chievo Verona",471: "Sassuolo",107: "Genoa",584: "Sampdoria",1106: "Benevento",110: "Lazio",1107: "SPAL",108: "Inter",99: "Fiorentina",103: "Bologna",586: "Torino",472: "Crotone",98: "Milan"}
 PPL_ids = {1809: "Desportivo Aves",498: "Sporting CP",506: "Vitoria Setubal",583: "Moreirense",1808: "Portimonense S.C.",810: "Boavista Porto",500: "Feirense",1049: "CD Tondela",496: "FC Rio Ave",711: "C.F. Os Belenenses",504: "Maritimo Funchal",507: "FC Paços de Ferreira",503: "FC Porto",582: "GD Estoril Praia",495: "SL Benfica",497: "Sporting Braga",502: "Vitoria Guimaraes",1103: "G.D. Chaves"}
 SB_ids = {112: "Parma",457: "Cremonese",747: "Virtus Entella",452: "Perugia",454: "Venezia",455: "Salernitana",479: "Ternana",445: "Empoli",590: "Pro Vercelli",470: "Frosinone",114: "Palermo",488: "Spezia",466: "Cittadella",446: "Ascoli",713: "Carpi",587: "Novara",486: "Avellino",449: "Brescia",585: "Pescara",1822: "Foggia",431: "Bari",591: "Cesena"}
 CL_ids = {495 :"Benfica",751 :"CSKA Moscow",654 :"Olympiacos",498 :"Sporting CP",81 :"Barcelona",109 :"Juventus",100 :"Roma",78 :"Atlético de Madrid",61 :"Chelsea",611 :"Qarabag Agdam FK",732 :"Celtic",524 :"Paris Saint-Germain",5 :"Bayern München",726 :"Anderlecht",66 :"Manchester United",729 :"Basel",86 :"Real Madrid",752 :"APOEL Nicosia",721 :"Red Bull Leipzig",548 :"AS Monaco",503 :"Porto",600 :"Besiktas JK",724 :"Shakhtar Donetsk",113 :"Napoli",675 :"Feyenoord",65 :"Manchester City",734 :"NK Maribor",754 :"Spartak Moskva",64 :"Liverpool",559 :"Sevilla",73 :"Tottenham Hotspur",4 :"Borussia Dortmund"}
@@ -63,6 +63,10 @@ headers = {"X-Auth-Token": api_token, "X-Response-Control": "minified"}
 # parse date TZ -> UTC, add UTC offset, print string
 def parse_date(date, time_zone):
     return (dateutil.parser.parse(date) + datetime.timedelta(hours=time_zone)).strftime("%a, %b %d %Y %H:%M")
+
+
+def parse_date_no_day(date, time_zone):
+    return (dateutil.parser.parse(date) + datetime.timedelta(hours=time_zone)).strftime("%b %d %Y")
 
 
 # posts error message to chat
@@ -155,9 +159,10 @@ def get_matchday(connection, league_id):
 # get time zone from arg
 def get_tz(arg):
     try:
-        return int(arg)
+        time_zone = int(arg)
     except Exception as e:
         return 0
+    return time_zone
 
 
 # parse args from /fixtures/live/remaining command
@@ -254,7 +259,10 @@ def get_team(bot, update, args):
         days = int(args[1])
     except Exception as e:
         days = 15
-    time_zone = get_tz(args[2])
+    try:
+        time_zone = int(args[2])
+    except Exception as e:
+        time_zone = 0
     # looks through all teams of (almost) all leagues
     # order of popularity/frequency of query (just a guess)
     # TODO (?) add remaining leagues FL2, BL2, BSA, ELC, EL1, EL2
@@ -306,11 +314,19 @@ def get_team(bot, update, args):
                 break
     if team_id == 0:
         return
-    connection.request("GET", "/v1/teams/{}/fixtures?timeFrame=n{}".format(team_id, days), None, headers)
-    response = json.loads(connection.getresponse().read().decode())
     fixtures = []
-    for fixture in response["fixtures"]:
-        fixtures.append("*{}* {} - _Matchday {}_\n{} - {}\n".format(competitions_ids[fixture["competitionId"]], parse_date(fixture["date"], time_zone), fixture["matchday"], leagues_teams_ids[fixture["competitionId"]][fixture["homeTeamId"]], leagues_teams_ids[fixture["competitionId"]][fixture["awayTeamId"]]))
+    # next matches
+    if days > 0:
+        connection.request("GET", "/v1/teams/{}/fixtures?timeFrame=n{}".format(team_id, days), None, headers)
+        response = json.loads(connection.getresponse().read().decode())
+        for fixture in response["fixtures"]:
+            fixtures.append("*{}* {} - _Matchday {}_\n{} - {}\n".format(competitions_ids[fixture["competitionId"]], parse_date(fixture["date"], time_zone), fixture["matchday"], leagues_teams_ids[fixture["competitionId"]][fixture["homeTeamId"]], leagues_teams_ids[fixture["competitionId"]][fixture["awayTeamId"]]))
+    # previous matches
+    elif days < 0:
+        connection.request("GET", "/v1/teams/{}/fixtures?timeFrame=p{}".format(team_id, -days), None, headers)
+        response = json.loads(connection.getresponse().read().decode())
+        for fixture in response["fixtures"]:
+            fixtures.append("*{}* {} - _Matchday {}_\n`{:>15s} {}-{} {}`\n".format(competitions_ids[fixture["competitionId"]], parse_date_no_day(fixture["date"], time_zone), fixture["matchday"], leagues_teams_ids[fixture["competitionId"]][fixture["homeTeamId"]], fixture["result"]["goalsHomeTeam"], fixture["result"]["goalsAwayTeam"], leagues_teams_ids[fixture["competitionId"]][fixture["awayTeamId"]]))
     bot.send_message(chat_id=update.message.chat_id,
                      text="{}".format("\n".join(fixtures)), parse_mode="markdown")
     return
