@@ -2,6 +2,8 @@ import http.client
 import json
 from telegram.ext import Updater, CommandHandler
 import telegram
+import datetime
+import dateutil.parser
 
 # Italian Serie A is always the default league for all commands
 
@@ -55,24 +57,28 @@ leagues_teams_ids = {444: BSA_ids, 445: PL_ids, 446: ELC_ids, 447: EL1_ids, 448:
 
 # insert your own API token from http://football-data.org
 api_token = ""
-headers = {"X-Auth-Token": api_token,
-               "X-Response-Control": "minified"}
+headers = {"X-Auth-Token": api_token, "X-Response-Control": "minified"}
+
+
+# parse date TZ -> UTC, add UTC offset, print string
+def parse_date(date, time_zone):
+    return (dateutil.parser.parse(date) + datetime.timedelta(hours=time_zone)).strftime("%a, %b %d %Y %H:%M")
 
 
 # posts error message to chat
 def error(bot):
     bot.send_message(chat_id=update.message.chat_id,
-                   text="``` There was something wrong, try again later... ```", parse_mode="markdown")
+                     text="``` There was something wrong, try again later... ```", parse_mode="markdown")
     return
 
 
 # tries connection to API
 def get_connection(bot):
     try:
-      connection = http.client.HTTPConnection("api.football-data.org")
+        connection = http.client.HTTPConnection("api.football-data.org")
     except Exception as e:
-      error(bot)
-      return None
+        error(bot)
+        connection = None
     return connection
 
 
@@ -94,14 +100,12 @@ def CL_table(response):
         ranks.append("\n*Group {}*".format(group))
         for rank in response["standings"][group]:
             ranks.append("``` {0:22s} {1:d} ```".format(leagues_teams_ids[league_id][rank["teamId"]], rank["points"]))
-    string = "*{0:s}*\nMatchday {1:2d}\n{2:s}".format(
+    return "*{0:s}*\nMatchday {1:2d}\n{2:s}".format(
         response["leagueCaption"], response["matchday"], "\n".join(ranks))
-    return string
 
 
 # posts table of league
 def table(bot, update, args):
-    print("Getting table...")
     connection = get_connection(bot)
     if connection is None:
         return
@@ -121,11 +125,11 @@ def table(bot, update, args):
                   response["leagueCaption"], response["matchday"], "\n".join(ranks))
     bot.send_message(chat_id=update.message.chat_id,
                      text=string, parse_mode="markdown")
-    print("Done!")
     return
 
 
-def parse_fixtures(response, league_id, matchday, flag):
+# parse fixtures, generates formatted message
+def parse_fixtures(response, league_id, matchday, flag, time_zone):
     fixtures = []
     for fixture in response["fixtures"]:
         if flag == 1 and fixture["status"] != "IN_PLAY":
@@ -139,38 +143,56 @@ def parse_fixtures(response, league_id, matchday, flag):
                 home_goals = 0
             if away_goals is None:
                 away_goals = 0
-            date = fixture["date"]
-            date = date[0:10] + " " + str(int(date[11:13]) + 1) + date[13:len(date)-4]
-            fixtures.append("{0:s}\n``` {1:>13s} {2:d} - {3:d} {4:s}```\n".format(date, leagues_teams_ids[league_id][fixture["homeTeamId"]], home_goals, away_goals, leagues_teams_ids[league_id][fixture["awayTeamId"]]))
-    string = "*{0:s}*\nMatchday {1:d}\n\n{2:s}".format(competitions_ids[league_id], matchday, "\n".join(fixtures))
-    return string
+            fixtures.append("{0:s}\n``` {1:>13s} {2:d} - {3:d} {4:s}```\n".format(parse_date(fixture["date"], time_zone), leagues_teams_ids[league_id][fixture["homeTeamId"]], home_goals, away_goals, leagues_teams_ids[league_id][fixture["awayTeamId"]]))
+    return "*{0:s}*\nMatchday {1:d}\n\n{2:s}".format(competitions_ids[league_id], matchday, "\n".join(fixtures))
 
 
+# get current matchday for league_id
+def get_matchday(connection, league_id):
+    return get_table(connection, league_id)["matchday"]
+
+
+# get time zone from arg
+def get_tz(arg):
+    try:
+        return int(arg)
+    except Exception as e:
+        return 0
+
+
+# parse args from /fixtures/live/remaining command
 def get_league_matchday(connection, args, flag):
     # get league id
-    try:
-        league_id = leagues[args[0].upper()]
-    except Exception as e:
-        league_id = 456
-    # if live/remaining get getCurrentMatchday
-    if flag != 0:
-        table = get_table(connection, league_id)
-        matchday = table["matchday"]
-    # else try to read matchday from args
-    elif flag == 0:
-        if len(args) == 1:
-            try:
-                matchday = int(args[0])
-            except Exception as e:
-                table = get_table(connection, league_id)
-                matchday = table["matchday"]
-        else:
-            try:
-                matchday = int(args[1])
-            except Exception as e:
-                table = get_table(connection, league_id)
-                matchday = table["matchday"]
-    return league_id, matchday
+    if not args:
+            league_id = 456
+            matchday = get_matchday(connection, league_id)
+            time_zone = 0
+    else:
+        try:
+            league_id = leagues[args[0].upper()]
+        except Exception as e:
+            league_id = 456
+            # format args for later parsing
+            args.insert(0, 0)
+        # if live/remaining get current matchday and time zone
+        if flag != 0:
+            matchday = get_matchday(connection, league_id)
+            for arg in args:
+                time_zone = get_tz(arg)
+        # else try to read matchday from args
+        elif flag == 0:
+            if len(args) == 2:
+                try:
+                    matchday = int(args[1])
+                except Exception as e:
+                    matchday = get_matchday(connection, league_id)
+            else:   
+                try:
+                    matchday = int(args[1])
+                except Exception as e:
+                    matchday = get_matchday(connection, league_id)
+                time_zone = get_tz(args[2])
+    return league_id, matchday, time_zone
 
 
 # get fixtures for league and matchday
@@ -181,47 +203,41 @@ def get_fixtures(bot, args, flag, update):
     connection = get_connection(bot)
     if connection is None:
         return
-    league_id, matchday = get_league_matchday(connection, args, flag)
+    league_id, matchday, time_zone = get_league_matchday(connection, args, flag)
     try:
         connection.request("GET", "/v1/competitions/{}/fixtures?matchday={}".format(league_id, matchday), None, headers)
     except Exception as e:
         error(bot)
         return
-    response = json.loads(connection.getresponse().read().decode())
-    string = parse_fixtures(response, league_id, matchday, flag)
     bot.send_message(chat_id=update.message.chat_id,
-                     text=string, parse_mode="markdown")
-    print("Done!")
+                     text=parse_fixtures(json.loads(connection.getresponse().read().decode()), league_id, matchday, flag, time_zone), parse_mode="markdown")
     return
 
 
 # gets fixtures for matchday and league
 def fixtures(bot, update, args):
     print("Getting fixtures...")
-    flag = 0
-    get_fixtures(bot, args, flag, update)
+    get_fixtures(bot, args, 0, update)
     return
 
 
 # gets live fixtures for league
 def live(bot, update, args):
     print("Getting live fixtures...")
-    flag = 1
-    get_fixtures(bot, args, flag, update)
+    get_fixtures(bot, args, 1, update)
     return
 
 
 # gets remaining fixtures for league
 def remaining(bot, update, args):
     print("Getting remaining fixtures...")
-    flag = 2
-    get_fixtures(bot, args, flag, update)
+    get_fixtures(bot, args, 2, update)
     return
 
 
 # start/help message
 def start(bot, update):
-    string = "`/help ` command list\n`/table [league-code]` shows table for selected league\n`/fixtures [league-code] [matchday] ` shows fixtures for selected league and matchday\n`/live [league-code] ` shows live fixtures for selected league\n`/remaining [league-code] ` shows remaining fixtures for selected league\n`/team [team-name] [days]` shows fixture for team in the following days (all competitions)\n\nLeague codes:\n`BSA`  Brazilian Serie A\n`PL `  Premier League\n`ELC`  Championship\n`EL1`  League One\n`EL2`  League Two\n`DED`  Eredivisie\n`FL1`  Ligue 1\n`FL2`  Ligue 2\n`BL1`  Bundesliga\n`BL2`  2. Bundesliga\n`PD `  La Liga\n`SA `  Serie A\n`PPL`  Primeira Liga\n`DFB`  DFB Pokal\n`SB `  Serie B\n`CL `  Champions League"
+    string = "`/help ` command list\n`/table [league-code]` shows table for selected league\n`/fixtures [league-code] [matchday] [UTC-offset]` shows fixtures for selected league and matchday, e.g. `/fixtures SA 13 2`\n`/live [league-code] [UTC-offset]` shows live fixtures for selected league\n`/remaining [league-code] [UTC-offset]` shows remaining fixtures for selected league\n`/team [team-name] [days] [UTC-offset]` shows fixture for team in the following days (all competitions)\n\nLeague codes:\n`BSA`  Brazilian Serie A\n`PL `  Premier League\n`ELC`  Championship\n`EL1`  League One\n`EL2`  League Two\n`DED`  Eredivisie\n`FL1`  Ligue 1\n`FL2`  Ligue 2\n`BL1`  Bundesliga\n`BL2`  2. Bundesliga\n`PD `  La Liga\n`SA `  Serie A\n`PPL`  Primeira Liga\n`DFB`  DFB Pokal\n`SB `  Serie B\n`CL `  Champions League"
     bot.send_message(chat_id=update.message.chat_id,
                      text=string, parse_mode="markdown")
     return
@@ -230,7 +246,6 @@ def start(bot, update):
 # get fixtures for team for following days
 def get_team(bot, update, args):
     team = args[0].lower()
-    print("Getting team fixtures for", team)
     connection = get_connection(bot)
     if connection is None:
         return
@@ -239,6 +254,7 @@ def get_team(bot, update, args):
         days = int(args[1])
     except Exception as e:
         days = 15
+    time_zone = get_tz(args[2])
     # looks through all teams of (almost) all leagues
     # order of popularity/frequency of query (just a guess)
     # TODO (?) add remaining leagues FL2, BL2, BSA, ELC, EL1, EL2
@@ -294,13 +310,9 @@ def get_team(bot, update, args):
     response = json.loads(connection.getresponse().read().decode())
     fixtures = []
     for fixture in response["fixtures"]:
-        date = fixture["date"]
-        date = date[0:10] + " " + str(int(date[11:13]) + 1) + date[13:len(date)-4]
-        fixtures.append("*{}* {} - _Matchday {}_\n{} - {}\n".format(competitions_ids[fixture["competitionId"]], date, fixture["matchday"], leagues_teams_ids[fixture["competitionId"]][fixture["homeTeamId"]], leagues_teams_ids[fixture["competitionId"]][fixture["awayTeamId"]]))
-    string = "{}".format("\n".join(fixtures))
+        fixtures.append("*{}* {} - _Matchday {}_\n{} - {}\n".format(competitions_ids[fixture["competitionId"]], parse_date(fixture["date"], time_zone), fixture["matchday"], leagues_teams_ids[fixture["competitionId"]][fixture["homeTeamId"]], leagues_teams_ids[fixture["competitionId"]][fixture["awayTeamId"]]))
     bot.send_message(chat_id=update.message.chat_id,
-                     text=string, parse_mode="markdown")
-    print("Done!")
+                     text="{}".format("\n".join(fixtures)), parse_mode="markdown")
     return
 
 # insert your own bot token
